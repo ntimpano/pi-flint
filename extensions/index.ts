@@ -2,6 +2,7 @@
  * flint Extension for Pi
  * 
  * Exposes flint local SQLite operations as native Pi tools.
+ * Calls the flint CLI binary and handles text output directly.
  */
 
 import type { ExtensionAPI, AgentToolResult } from "@earendil-works/pi-coding-agent";
@@ -13,19 +14,12 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 
 function resolveFlintBin(): string {
-  // 1. Explicit override
   const env = process.env.FLINT_BIN;
   if (env && existsSync(env)) return env;
-
-  // 2. User-local install (most common)
   const local = join(homedir(), ".local", "bin", "flint");
   if (existsSync(local)) return local;
-
-  // 3. System install
   const system = "/opt/flint/flint";
   if (existsSync(system)) return system;
-
-  // 4. Fallback — let spawn fail with a clear error
   return "flint";
 }
 
@@ -36,7 +30,6 @@ interface FlintResult {
   stdout: string;
   stderr: string;
   exitCode: number;
-  parsed?: unknown;
 }
 
 async function runFlint(
@@ -50,29 +43,18 @@ async function runFlint(
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env },
     });
-
     let stdout = "";
     let stderr = "";
-
     proc.stdout.on("data", (d) => { stdout += d.toString(); });
     proc.stderr.on("data", (d) => { stderr += d.toString(); });
-
     proc.on("close", (code) => {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(stdout.trim());
-      } catch {
-        // not JSON
-      }
       resolve({
         ok: (code ?? 1) === 0,
         stdout: stdout.trim(),
         stderr: stderr.trim(),
         exitCode: code ?? 1,
-        parsed,
       });
     });
-
     proc.on("error", () => {
       resolve({ ok: false, stdout: "", stderr: `${FLINT_BIN} not found or failed`, exitCode: 1 });
     });
@@ -115,17 +97,13 @@ export default function (pi: ExtensionAPI) {
       if (params.topic_key) args.push("--topic-key", params.topic_key);
       if (params.scope) args.push("--scope", params.scope);
       if (params.type) args.push("--type", params.type);
-
       const result = await runFlint(args, ctx.cwd);
       if (!result.ok) {
         return makeErrorResult(result.stderr || result.stdout);
       }
-      const id = typeof result.parsed === "object" && result.parsed !== null && "id" in result.parsed
-        ? (result.parsed as Record<string, unknown>).id
-        : "unknown";
       return {
-        content: [{ type: "text", text: `Note saved (id: ${id}).\n${result.stdout}` }],
-        details: { ok: true, id, raw: result.parsed },
+        content: [{ type: "text", text: result.stdout }],
+        details: { ok: true, raw: result.stdout },
       };
     },
     renderCall(args, theme) {
@@ -148,7 +126,7 @@ export default function (pi: ExtensionAPI) {
       "Search notes in flint local SQLite by text query.",
       "Returns matching notes sorted by relevance.",
       "Use this to recover prior context before acting.",
-      "Set all_projects=true to search across all projects (ignores current directory context).",
+      "NOTE: all_projects=true by default to search across all projects.",
     ].join(" "),
     parameters: Type.Object({
       query: Type.String({ description: "Search query text" }),
@@ -156,7 +134,7 @@ export default function (pi: ExtensionAPI) {
       type: Type.Optional(Type.String({ description: "Filter by note type" })),
       since: Type.Optional(Type.String({ description: "Filter notes since date (YYYY-MM-DD)" })),
       until: Type.Optional(Type.String({ description: "Filter notes until date (YYYY-MM-DD)" })),
-      all_projects: Type.Optional(Type.Boolean({ description: "Search across all projects (default: false)" })),
+      all_projects: Type.Optional(Type.Boolean({ description: "Search across all projects (default: true)" })),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const args = ["recall", params.query];
@@ -164,29 +142,21 @@ export default function (pi: ExtensionAPI) {
       if (params.type) args.push("--type", params.type);
       if (params.since) args.push("--since", params.since);
       if (params.until) args.push("--until", params.until);
-      if (params.all_projects) args.push("--all-projects");
-
+      // Default to all_projects=true unless explicitly set to false
+      if (params.all_projects !== false) args.push("--all-projects");
       const result = await runFlint(args, ctx.cwd);
       if (!result.ok) {
         return makeErrorResult(result.stderr || result.stdout);
       }
-      const notes = Array.isArray(result.parsed) ? result.parsed : [];
-      if (notes.length === 0) {
+      if (!result.stdout || result.stdout === "no results") {
         return {
           content: [{ type: "text", text: "No notes found matching query." }],
           details: { ok: true, count: 0 },
         };
       }
-      const formatted = (notes as Array<Record<string, unknown>>).map((n) => {
-        const id = n.id ?? "?";
-        const title = n.title ?? "(no title)";
-        const topicKey = n.topic_key ?? "";
-        const content = (n.content ?? "").toString().slice(0, 300);
-        return `## [${id}] ${title}\n**topic_key:** ${topicKey}\n${content}`;
-      }).join("\n\n---\n\n");
       return {
-        content: [{ type: "text", text: `Found ${notes.length} note(s):\n\n${formatted}` }],
-        details: { ok: true, count: notes.length, ids: notes.map((n) => n.id) },
+        content: [{ type: "text", text: result.stdout }],
+        details: { ok: true, raw: result.stdout },
       };
     },
     renderCall(args, theme) {
@@ -214,20 +184,15 @@ export default function (pi: ExtensionAPI) {
       if (!result.ok) {
         return makeErrorResult(result.stderr || result.stdout);
       }
-      const note = result.parsed as Record<string, unknown> | null;
-      if (!note || Object.keys(note).length === 0) {
+      if (!result.stdout || result.stdout.startsWith("note ")) {
         return {
           content: [{ type: "text", text: `Note ${params.id} not found.` }],
           details: { ok: true, found: false },
         };
       }
-      const title = note.title ?? "(no title)";
-      const topicKey = note.topic_key ?? "";
-      const content = (note.content ?? "").toString();
-      const text = `# [${params.id}] ${title}\n**topic_key:** ${topicKey}\n**created:** ${note.created_at ?? ""}\n**updated:** ${note.updated_at ?? ""}\n\n${content}`;
       return {
-        content: [{ type: "text", text }],
-        details: { ok: true, found: true, note },
+        content: [{ type: "text", text: result.stdout }],
+        details: { ok: true, found: true },
       };
     },
     renderCall(args, theme) {
@@ -246,38 +211,30 @@ export default function (pi: ExtensionAPI) {
     description: [
       "List recent notes from flint local SQLite.",
       "Use to browse recent context without a specific query.",
-      "Set all_projects=true to list notes from all projects.",
+      "NOTE: all_projects=true by default to show notes from all projects.",
     ].join(" "),
     parameters: Type.Object({
       limit: Type.Optional(Type.Number({ description: "Max results (default 10)" })),
-      all_projects: Type.Optional(Type.Boolean({ description: "Include notes from all projects (default: active project only)" })),
+      all_projects: Type.Optional(Type.Boolean({ description: "Include notes from all projects (default: true)" })),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const args = ["list"];
       if (params.limit) args.push(String(params.limit));
-      if (params.all_projects) args.push("--all-projects");
-
+      // Default to all_projects=true unless explicitly set to false
+      if (params.all_projects !== false) args.push("--all-projects");
       const result = await runFlint(args, ctx.cwd);
       if (!result.ok) {
         return makeErrorResult(result.stderr || result.stdout);
       }
-      const notes = Array.isArray(result.parsed) ? result.parsed : [];
-      if (notes.length === 0) {
+      if (!result.stdout || result.stdout === "no results") {
         return {
           content: [{ type: "text", text: "No recent notes found." }],
           details: { ok: true, count: 0 },
         };
       }
-      const formatted = (notes as Array<Record<string, unknown>>).map((n) => {
-        const id = n.id ?? "?";
-        const title = n.title ?? "(no title)";
-        const topicKey = n.topic_key ?? "";
-        const type = n.type ?? "";
-        return `[${id}] ${title}  |  type: ${type}  |  key: ${topicKey}`;
-      }).join("\n");
       return {
-        content: [{ type: "text", text: `Recent notes (${notes.length}):\n\n${formatted}` }],
-        details: { ok: true, count: notes.length },
+        content: [{ type: "text", text: result.stdout }],
+        details: { ok: true, raw: result.stdout },
       };
     },
     renderCall(args, theme) {
