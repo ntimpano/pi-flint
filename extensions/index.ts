@@ -8,8 +8,28 @@ import type { ExtensionAPI, AgentToolResult } from "@earendil-works/pi-coding-ag
 import { Type } from "typebox";
 import { spawn } from "node:child_process";
 import { Text } from "@earendil-works/pi-tui";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
-const FLINT_BIN = "/opt/flint/flint";
+function resolveFlintBin(): string {
+  // 1. Explicit override
+  const env = process.env.FLINT_BIN;
+  if (env && existsSync(env)) return env;
+
+  // 2. User-local install (most common)
+  const local = join(homedir(), ".local", "bin", "flint");
+  if (existsSync(local)) return local;
+
+  // 3. System install
+  const system = "/opt/flint/flint";
+  if (existsSync(system)) return system;
+
+  // 4. Fallback — let spawn fail with a clear error
+  return "flint";
+}
+
+const FLINT_BIN = resolveFlintBin();
 
 interface FlintResult {
   ok: boolean;
@@ -54,7 +74,7 @@ async function runFlint(
     });
 
     proc.on("error", () => {
-      resolve({ ok: false, stdout: "", stderr: FLINT_BIN + " not found or failed", exitCode: 1 });
+      resolve({ ok: false, stdout: "", stderr: `${FLINT_BIN} not found or failed`, exitCode: 1 });
     });
   });
 }
