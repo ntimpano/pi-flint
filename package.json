@@ -2,12 +2,21 @@
   "name": "@ntimpano/pi-flint",
   "version": "0.1.0",
   "description": "flint memory tools for Pi coding agent — save, recall, get, and list notes via local SQLite",
-  "keywords": ["pi-package", "flint", "memory", "persistence"],
+  "keywords": [
+    "pi-package",
+    "flint",
+    "memory",
+    "persistence",
+    "sqlite"
+  ],
   "author": "ntimpano",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ntimpano/pi-flint"
+    "url": "git+https://github.com/ntimpano/pi-flint.git"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
@@ -15,6 +24,8 @@
     "typebox": "*"
   },
   "pi": {
-    "extensions": ["./extensions/index.ts"]
+    "extensions": [
+      "./extensions/index.ts"
+    ]
   }
 }
