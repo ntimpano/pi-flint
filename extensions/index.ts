@@ -88,9 +88,9 @@ function makeErrorResult(message: string): AgentToolResult<unknown> {
 }
 
 export default function (pi: ExtensionAPI) {
-  // ── flint_save ──────────────────────────────────────────────
+  // ── local_save ──────────────────────────────────────────────
   pi.registerTool({
-    name: "flint_save",
+    name: "local_save",
     label: "flint Save",
     description: [
       "Save a note to flint local SQLite store.",
@@ -132,7 +132,7 @@ export default function (pi: ExtensionAPI) {
       const title = args.title || "(untitled)";
       const preview = args.content.length > 60 ? args.content.slice(0, 60) + "..." : args.content;
       return new Text(
-         theme.fg("toolTitle", "flint_save ") +
+         theme.fg("toolTitle", "local_save ") +
         theme.fg("accent", title) +
         "\n  " + theme.fg("dim", preview),
         0, 0,
@@ -140,9 +140,9 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // ── flint_recall ────────────────────────────────────────────
+  // ── local_recall ────────────────────────────────────────────
   pi.registerTool({
-    name: "flint_recall",
+    name: "local_recall",
     label: "flint Recall",
     description: [
       "Search notes in flint local SQLite by text query.",
@@ -191,16 +191,16 @@ export default function (pi: ExtensionAPI) {
     },
     renderCall(args, theme) {
       return new Text(
-         theme.fg("toolTitle", "flint_recall ") +
+         theme.fg("toolTitle", "local_recall ") +
         theme.fg("accent", `"${args.query}"`),
         0, 0,
       );
     },
   });
 
-  // ── flint_get ───────────────────────────────────────────────
+  // ── local_get ───────────────────────────────────────────────
   pi.registerTool({
-    name: "flint_get",
+    name: "local_get",
     label: "flint Get",
     description: [
       "Get a single note by its numeric ID.",
@@ -232,16 +232,16 @@ export default function (pi: ExtensionAPI) {
     },
     renderCall(args, theme) {
       return new Text(
-         theme.fg("toolTitle", "flint_get ") +
+         theme.fg("toolTitle", "local_get ") +
         theme.fg("accent", `#${args.id}`),
         0, 0,
       );
     },
   });
 
-  // ── flint_list ──────────────────────────────────────────────
+  // ── local_list ──────────────────────────────────────────────
   pi.registerTool({
-    name: "flint_list",
+    name: "local_list",
     label: "flint List",
     description: [
       "List recent notes from flint local SQLite.",
@@ -283,7 +283,7 @@ export default function (pi: ExtensionAPI) {
     renderCall(args, theme) {
       const limit = args.limit ?? 10;
       return new Text(
-         theme.fg("toolTitle", "flint_list ") +
+         theme.fg("toolTitle", "local_list ") +
         theme.fg("dim", `(limit: ${limit})`),
         0, 0,
       );
