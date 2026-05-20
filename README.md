@@ -1,5 +1,7 @@
 # @ntimpano/pi-flint
 
+![flint logo](logo.svg)
+
 [flint](https://github.com/ntimpano/flint) memory tools for Pi coding agent. Persist and recall context via local SQLite — no bash hacks needed.
 
 ## Install
