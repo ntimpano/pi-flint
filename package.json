@@ -1,6 +1,6 @@
 {
   "name": "@ntimpano/pi-flint",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "flint memory tools for Pi coding agent — save, recall, get, and list notes via local SQLite",
   "keywords": [
     "pi-package",
