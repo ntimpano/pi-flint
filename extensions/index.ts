@@ -124,26 +124,38 @@ export default function (pi: ExtensionAPI) {
     label: "flint Recall",
     description: [
       "Search notes in flint local SQLite by text query.",
-      "Returns matching notes sorted by relevance.",
+      "Returns matching notes sorted by relevance (scoped to active project).",
       "Use this to recover prior context before acting.",
-      "NOTE: all_projects=true by default to search across all projects.",
+      "NOTE: recall is always scoped to the active project.",
+      "For cross-project search, use local_list with all_projects=true first,",
+      "then local_get to read specific notes.",
     ].join(" "),
     parameters: Type.Object({
       query: Type.String({ description: "Search query text" }),
-      limit: Type.Optional(Type.Number({ description: "Max results (default 5)" })),
-      type: Type.Optional(Type.String({ description: "Filter by note type" })),
+      // NOTE: limit is accepted for API compat but not passed to flint CLI.
+      // The flint CLI recall command has no --limit flag; limit is not configurable.
+      // Passing a number as a positional arg corrupts the query string.
+      limit: Type.Optional(Type.Number({ description: "Deprecated: not supported by flint recall CLI." })),
+      type: Type.Optional(Type.String({ description: "Filter by note type (e.g. decision, bug, discovery)" })),
       since: Type.Optional(Type.String({ description: "Filter notes since date (YYYY-MM-DD)" })),
       until: Type.Optional(Type.String({ description: "Filter notes until date (YYYY-MM-DD)" })),
-      all_projects: Type.Optional(Type.Boolean({ description: "Search across all projects (default: true)" })),
+      // NOTE: all_projects is accepted for API compat but intentionally not passed.
+      // The flint CLI recall command does not support --all-projects.
+      // Passing it silently corrupts the query string (e.g. "freshrss --all-projects").
+      // Recall is always scoped to the active project.
+      all_projects: Type.Optional(Type.Boolean({ description: "Deprecated: recall is always project-scoped. Ignored." })),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const args = ["recall", params.query];
-      if (params.limit) args.push(String(params.limit));
-      if (params.type) args.push("--type", params.type);
-      if (params.since) args.push("--since", params.since);
-      if (params.until) args.push("--until", params.until);
-      // Default to all_projects=true unless explicitly set to false
-      if (params.all_projects !== false) args.push("--all-projects");
+      // NOTE: flint CLI 'recall' does NOT support --all-projects or a positional limit.
+      // --all-projects gets silently absorbed into the query string, corrupting search.
+      // Positional limit also gets absorbed into the query string.
+      // Only --type=, --since=, --until= are valid flags for recall.
+      const args = ["recall"];
+      if (params.type) args.push(`--type=${params.type}`);
+      if (params.since) args.push(`--since=${params.since}`);
+      if (params.until) args.push(`--until=${params.until}`);
+      // The query must be the LAST positional arg (after all flags)
+      args.push(params.query);
       const result = await runFlint(args, ctx.cwd);
       if (!result.ok) {
         return makeErrorResult(result.stderr || result.stdout);
@@ -245,5 +257,44 @@ export default function (pi: ExtensionAPI) {
         0, 0,
       );
     },
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // Compaction Recovery Hooks
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * When Pi compacts a session, save the compaction summary to flint
+   * so the next agent start can recover context.
+   */
+  pi.on("session_compact", async (ctx) => {
+    if (!ctx.summary) return;
+    await runFlint(["recovery", "save", "--summary", ctx.summary], ctx.cwd || process.cwd());
+  });
+
+  /**
+   * Before an agent starts (especially after compaction), check for a pending
+   * recovery note and inject it into the context.
+   */
+  pi.on("before_agent_start", async (ctx) => {
+    const result = await runFlint(["recovery", "get"], ctx.cwd || process.cwd());
+    if (!result.ok || !result.stdout || result.stdout === "no recovery note") return;
+
+    const recoveryNotice = {
+      role: "system" as const,
+      content: [
+        "─── Session Recovery Notice ───",
+        "The previous session was compacted. Here is what was accomplished:",
+        "",
+        result.stdout,
+        "",
+        "Continue as if this work was done in the current session.",
+        "─────────────────────────────────",
+      ].join("\n"),
+    };
+    ctx.messages.unshift(recoveryNotice);
+
+    // Clear the recovery note so it's only injected once
+    await runFlint(["recovery", "clear"], ctx.cwd || process.cwd());
   });
 }
