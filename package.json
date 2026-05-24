@@ -25,7 +25,7 @@
   },
   "pi": {
     "extensions": [
-      "./extensions/index.ts"
+      "./index.ts"
     ]
   }
 }

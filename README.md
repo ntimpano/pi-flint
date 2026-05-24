@@ -23,6 +23,15 @@ pi install ./path/to/pi-flint
 | `local_get` | Get a single note by ID |
 | `local_list` | List recent notes (supports cross-project) |
 
+## Compaction Recovery
+
+The extension hooks into Pi's lifecycle events to preserve context across session compactions:
+
+- **`session_compact`** — Saves the compaction summary to flint via `flint recovery save`.
+- **`before_agent_start`** — Checks for a pending recovery note via `flint recovery get`. If found, injects it into the agent's context as a system message, then clears the note via `flint recovery clear`.
+
+This ensures that after a compaction, the next agent session can recover what was accomplished previously.
+
 ## Usage
 
 ```
@@ -88,6 +97,17 @@ If you need to search across all projects:
 |-----------|----------|-------------|
 | `id` | ✅ | Note ID (numeric) |
 
+## Architecture
+
+Single entry point: `index.ts` registers all tools and compaction recovery hooks with Pi's extension API. All tools call the `flint` CLI binary via `spawn()` — no direct SQLite access.
+
+Binary resolution order: `FLINT_BIN` env → `~/.local/bin/flint` → `/opt/flint/flint` → fallback to `flint` on PATH.
+
+## Requirements
+
+- `flint` binary must be installed and on PATH, or at `~/.local/bin/flint`, or at `/opt/flint/flint`, or set via `FLINT_BIN` env var.
+- [flint](https://github.com/ntimpano/flint) v0.1.0+
+
 ## Changelog
 
 ### v0.2.1 — 2025-05-24
@@ -102,7 +122,15 @@ Changes:
 - Reordered args: flags (`--type=`, `--since=`, `--until=`) now precede the query string, matching the CLI parser expectations.
 - `limit` and `all_projects` parameters are kept for API compatibility but marked as deprecated and ignored.
 
-## Requirements
+### v0.2.0 — 2025-05-23
 
-- `flint` binary must be installed and on PATH, or at `~/.local/bin/flint`, or at `/opt/flint/flint`, or set via `FLINT_BIN` env var.
-- [flint](https://github.com/ntimpano/flint) v0.1.0+
+**Added: Compaction recovery hooks + consolidated entry point**
+
+- `session_compact` hook saves compaction summary to flint for context recovery.
+- `before_agent_start` hook injects recovery note into agent context on next session start, then clears it.
+- Consolidated extension into single `index.ts` entry point (removed `extensions/` directory).
+- `local_save` now returns the note ID from flint CLI output.
+- `local_recall` and `local_list` now parse and format JSON output from flint CLI.
+- `local_get` returns structured note with metadata (title, topic_key, created_at, updated_at).
+- Binary resolution now checks `FLINT_BIN` env, `~/.local/bin/flint`, `/opt/flint/flint`, then PATH fallback.
+- `local_list` defaults to `all_projects=true` unless explicitly set to false.
